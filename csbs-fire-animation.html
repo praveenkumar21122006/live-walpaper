@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>if(/[?&]display=1/.test(location.search))document.documentElement.className+=' display-mode';</script>
 <script src="mqtt.min.js"></script>
+<script>if(typeof mqtt==='undefined'){var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js';s.async=true;document.head.appendChild(s);}</script>
 <title>DEPT OF CSBS — 3D Ultra-HD Fire Experience</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -285,7 +286,7 @@ update();
   }
   // ---- 2) CLOUD via public MQTT (works on Vercel, needs internet) ----
   const BROKERS=['wss://mqtt.eclipseprojects.io:443/mqtt','wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
-  const cloudConnect=(i)=>{ if(typeof mqtt==='undefined') return; // CDN blocked: LAN/file-clock still works
+  const cloudConnect=(i)=>{ if(typeof mqtt==='undefined'){ setTimeout(()=>cloudConnect(0),3000); return; } // lib still loading: retry
     try{ cloudClient=mqtt.connect(BROKERS[i],{connectTimeout:8000,reconnectPeriod:5000,
       clientId:'csbs-'+Math.random().toString(16).slice(2,10),clean:true});
     }catch(e){ if(i+1<BROKERS.length) cloudConnect(i+1); return; }
