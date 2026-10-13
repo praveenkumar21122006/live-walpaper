@@ -257,12 +257,13 @@ update();
   const params=new URLSearchParams(location.search);
   const ROOM=((params.get('room')||'csbs-main').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40))||'csbs-main';
   const TOPIC='csbs-fire/'+ROOM+'/sync';
-  const linked={lan:false,cloud:false}; let lanCount=null, cloudClient=null;
-  const paint=()=>{ const on=linked.lan||linked.cloud;
+  const linked={lan:false,cloud:false,ntfy:false}; let lanCount=null, cloudClient=null;
+  const paint=()=>{ const on=linked.lan||linked.cloud||linked.ntfy;
     dot.style.color=on?'#7dff9a':'#ffb36a';
     const parts=[];
     if(linked.lan) parts.push('LAN'+(lanCount===null?'':' • '+lanCount+' screen(s)'));
     if(linked.cloud) parts.push('CLOUD '+ROOM);
+    if(linked.ntfy) parts.push('WEB '+ROOM);
     dot.textContent=on?('LINKED '+parts.join(' + ')):'connecting…';
     if(on) btn.style.display='';
     if(on&&!toldLink){ toldLink=true; pill('LINKED ✓ — press SYNC on host'); } };
@@ -297,12 +298,24 @@ update();
     cloudClient.on('error',()=>{ try{cloudClient.end(true);}catch(e){} cloudClient=null; linked.cloud=false; paint();
       if(i+1<BROKERS.length) cloudConnect(i+1); }); };
   cloudConnect(0);
+  // ---- 3) WEB via ntfy.sh — plain HTTPS (port 443), works anywhere the page loads ----
+  const NTOPIC=('csbs-sync-'+ROOM).toLowerCase();
+  try{ const nev=new EventSource('https://ntfy.sh/'+NTOPIC+'/sse');
+    nev.onopen=()=>{ linked.ntfy=true; paint(); };
+    nev.onerror=()=>{ linked.ntfy=false; paint(); };
+    nev.onmessage=(ev)=>{ if(!ev.data) return;
+      try{ const d=JSON.parse(ev.data);
+        if(d&&d.message){ const m=JSON.parse(d.message); if(m.epoch) onEpoch(m.epoch); }
+      }catch(e){} };
+  }catch(e){}
   btn.onclick=()=>{ const epoch=Date.now()/1000+1.5; // shared mark; every screen restarts locally on receipt
     const payload=JSON.stringify({epoch:epoch,room:ROOM}); const via=[];
     const done=()=>{ if(via.length) toast('📡 SYNC SENT ('+via.join('+')+') — ALL SCREENS'); };
-    if(!linked.lan&&!linked.cloud){ toast('not linked yet — wait for LINKED'); pill('NOT LINKED — check internet'); return; }
+    if(!linked.lan&&!linked.cloud&&!linked.ntfy){ toast('not linked yet — wait for LINKED'); pill('NOT LINKED — check internet'); return; }
     onEpoch(epoch); // host restarts too — otherwise the host itself stays out of sync!
     pill('📡 SYNC SENT — ALL SCREENS');
+    if(linked.ntfy) fetch('https://ntfy.sh/'+NTOPIC,{method:'POST',body:payload})
+      .then(()=>{ via.push('WEB'); done(); }).catch(()=>{});
     if(linked.lan) fetch('sync',{method:'POST',body:payload})
       .then(r=>r.json()).then(j=>{ via.push('LAN:'+j.screens); done(); }).catch(()=>{});
     if(cloudClient&&linked.cloud) try{ cloudClient.publish(TOPIC,payload,{qos:1},()=>{ via.push('CLOUD'); done(); }); }catch(e){}
