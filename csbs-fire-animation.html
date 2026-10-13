@@ -100,6 +100,8 @@
   #toast.show{opacity:1;transform:scale(1)}
   /* display mode: other desktops show ONLY fullscreen button + wallpaper (no sync button) */
   .display-mode #syncAllBtn,.display-mode #hud,.display-mode #hint,.display-mode #toast{display:none!important}
+  /* true fullscreen: hide every UI element, animation only */
+  .fs-hide-ui #controls,.fs-hide-ui #hud,.fs-hide-ui #hint,.fs-hide-ui #toast{display:none!important}
 </style>
 </head>
 <body>
@@ -141,6 +143,8 @@ const loopTime = ()=> ((Date.now()/1000 - syncEpoch + clockOffset) % LOOP + LOOP
 function restart(){ const n=Date.now()/1000; clockOffset = Math.ceil(n)-n; }
 function toggleFS(){ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
   else document.exitFullscreen(); }
+['fullscreenchange','webkitfullscreenchange'].forEach(ev=>document.addEventListener(ev,()=>{
+  document.documentElement.classList.toggle('fs-hide-ui',!!(document.fullscreenElement||document.webkitFullscreenElement)); }));
 addEventListener('keydown',e=>{ if(e.key==='f'||e.key==='F')toggleFS(); if(e.key==='r'||e.key==='R')restart(); });
 addEventListener('dblclick',()=>toggleFS()); // double-click anywhere = fullscreen (no button needed on wall screens)
 setTimeout(()=>document.getElementById('hint').style.opacity=0,9000);
