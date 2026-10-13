@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>if(/[?&]display=1/.test(location.search))document.documentElement.className+=' display-mode';</script>
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
 <title>DEPT OF CSBS — 3D Ultra-HD Fire Experience</title>
 <style>
@@ -97,6 +98,8 @@
     text-shadow:0 0 18px #2bff70,0 0 60px #00c853,0 4px 20px #000;
     opacity:0;transform:scale(.8);transition:opacity .25s,transform .25s}
   #toast.show{opacity:1;transform:scale(1)}
+  /* display mode: other desktops show ONLY the wallpaper, host keeps the buttons */
+  .display-mode #controls,.display-mode #hud,.display-mode #hint,.display-mode #toast{display:none!important}
 </style>
 </head>
 <body>
@@ -125,9 +128,7 @@
 <div id="hud">ULTRA-HD <b id="res">—</b> • 3D • <b id="fps">60</b> FPS • <span id="syncDot">STANDALONE</span></div>
 <div id="controls">
   <button id="syncAllBtn" style="display:none;border-color:#7dff9a;color:#c9ffd9;background:rgba(40,180,80,.18)">📡 SYNC ALL SCREENS</button>
-  <button id="qBtn">QUALITY: AUTO-HD</button>
   <button onclick="toggleFS()">⛶ FULLSCREEN</button>
-  <button onclick="restart()">↻ RE-SYNC</button>
 </div>
 <div id="toast"></div>
 <div id="hint">Press <b>F</b> fullscreen &nbsp;•&nbsp; same file on all desktops = simultaneous show &nbsp;•&nbsp; move mouse for 3D parallax</div>
@@ -141,6 +142,7 @@ function restart(){ const n=Date.now()/1000; clockOffset = Math.ceil(n)-n; }
 function toggleFS(){ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
   else document.exitFullscreen(); }
 addEventListener('keydown',e=>{ if(e.key==='f'||e.key==='F')toggleFS(); if(e.key==='r'||e.key==='R')restart(); });
+addEventListener('dblclick',()=>toggleFS()); // double-click anywhere = fullscreen (no button needed on wall screens)
 setTimeout(()=>document.getElementById('hint').style.opacity=0,9000);
 
 const deptWrap=document.getElementById('deptWrap'), dept=document.getElementById('dept'), full=document.getElementById('full'),
@@ -286,7 +288,7 @@ update();
 /* ===== HIGH-RESOLUTION SETUP (devicePixelRatio aware) ===== */
 let DPR=Math.min(devicePixelRatio||1,2), QMODE=0; // 0 auto, 1 ultra(2x), 2 perf(1x)
 const qBtn=document.getElementById('qBtn');
-qBtn.onclick=()=>{ QMODE=(QMODE+1)%3;
+if(qBtn) qBtn.onclick=()=>{ QMODE=(QMODE+1)%3;
   DPR=QMODE===0?Math.min(devicePixelRatio||1,2):QMODE===1?Math.min(devicePixelRatio||1,2.5):1;
   qBtn.textContent='QUALITY: '+(QMODE===0?'AUTO-HD':QMODE===1?'ULTRA 4K':'PERFORMANCE'); sizeAll(); };
 function fit(c){ const d=DPR; c.width=innerWidth*d; c.height=innerHeight*d;
@@ -311,7 +313,7 @@ const starArr=Array.from({length:160},()=>({x:Math.random(),y:Math.random()*.7,z
   requestAnimationFrame(drawStars); })();
 
 /* smoke */
-const puffs=Array.from({length:26},()=>({x:Math.random()*innerWidth,y:innerHeight*.4+Math.random()*innerHeight*.6,
+const puffs=Array.from({length:16},()=>({x:Math.random()*innerWidth,y:innerHeight*.4+Math.random()*innerHeight*.6,
   r:60+Math.random()*130,vx:(Math.random()-.5)*.4,vy:-.25-Math.random()*.5,a:.05+Math.random()*.07}));
 (function drawSmoke(){ EX.clearRect(0,0,W,H);
   puffs.forEach(s=>{ s.x+=s.vx;s.y+=s.vy; if(s.y<-160){s.y=H+80;s.x=Math.random()*W;}
@@ -326,7 +328,7 @@ function spawnFlame(n){ n=Math.round(n*intensity);
   for(let i=0;i<n;i++) if(flames.length<900) flames.push({
   x:Math.random()*W,y:H+12,vx:(Math.random()-.5)*1.6,vy:-(2.2+Math.random()*5.5)*Math.min(intensity,1.8),
   r:(10+Math.random()*30)*Math.min(intensity,1.6),life:1,decay:.004+Math.random()*.011,hue:6+Math.random()*44}); }
-function spawnBurst(x,y,big){ const n=big?230:60, ns=big?130:28;
+function spawnBurst(x,y,big){ const n=big?180:50, ns=big?110:28;
   for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=2+Math.random()*(big?13:6);
     if(flames.length<1500) flames.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-4,
       r:8+Math.random()*24,life:1,decay:.008+Math.random()*.013,hue:8+Math.random()*48}); }
@@ -353,14 +355,14 @@ const sparks=[],rings=[];
   const g=FX.createRadialGradient(W/2,H+40,60,W/2,H+40,W*.6);
   g.addColorStop(0,'rgba(255,90,10,.4)');g.addColorStop(1,'rgba(0,0,0,0)');
   FX.fillStyle=g;FX.fillRect(0,0,W,H);
-  spawnFlame(Math.round(3+DPR*3));
+  spawnFlame(Math.round(2+DPR*2));
   while(bursts.length){const b=bursts.pop();spawnBurst(b.x,b.y,b.big);}
   // CSBS letters burn continuously: flames lick off every lit letter
   for(let li=0; li<chars.length; li++){ const c=chars[li];
     if(!c.classList.contains('lit')) continue;
     const r=c.getBoundingClientRect();
     if(r.width<4) continue;
-    const nE = 1 + (Math.random()<.6?1:0) + (intensity>1.6?1:0);
+    const nE = (Math.random()<.8?1:0) + (intensity>1.6?1:0);
     for(let k=0;k<nE;k++){
       const ex=r.left+Math.random()*r.width, ey=r.bottom-Math.random()*r.height*.85;
       if(flames.length<1500) flames.push({x:ex,y:ey,vx:(Math.random()-.5)*1.6,vy:-(1.5+Math.random()*3.2),
@@ -390,25 +392,25 @@ const sparks=[],rings=[];
     gr.addColorStop(.7,`hsla(${Math.max(0,p.hue-16)},95%,30%,${.34*p.life})`);
     gr.addColorStop(1,'rgba(0,0,0,0)');
     FX.fillStyle=gr;FX.beginPath();FX.arc(p.x,p.y,p.r*2,0,7);FX.fill(); }
-  // tall flame tongues (surge with finale intensity) + reflective floor line
+  // tall flame tongues (surge with finale intensity) + reflective floor line — one shared gradient (fast)
   const t=Date.now()/1000, surge=1+(intensity-1)*.9;
-  for(let x=0;x<W;x+=10){ const h=(56+Math.sin(x*.018+t*4.2)*26+Math.sin(x*.05-t*7)*16+Math.random()*7)*surge;
-    const gr=FX.createLinearGradient(0,H,0,H-h*2.4);
-    gr.addColorStop(0,'rgba(255,45,0,.85)');gr.addColorStop(.5,'rgba(255,150,0,.5)');gr.addColorStop(1,'rgba(255,230,120,0)');
-    FX.fillStyle=gr;FX.beginPath();FX.ellipse(x,H-h*.45,(8+DPR*3)*Math.min(surge,1.5),h,0,0,7);FX.fill(); }
+  const tongueGrad=FX.createLinearGradient(0,H,0,H-320*surge);
+  tongueGrad.addColorStop(0,'rgba(255,45,0,.85)');tongueGrad.addColorStop(.5,'rgba(255,150,0,.5)');tongueGrad.addColorStop(1,'rgba(255,230,120,0)');
+  FX.fillStyle=tongueGrad;
+  for(let x=0;x<W;x+=18){ const h=(56+Math.sin(x*.018+t*4.2)*26+Math.sin(x*.05-t*7)*16+Math.random()*7)*surge;
+    FX.beginPath();FX.ellipse(x,H-h*.45,(10+DPR*3)*Math.min(surge,1.5),h,0,0,7);FX.fill(); }
   FX.fillStyle='rgba(255,170,60,.5)';FX.fillRect(0,H-2,W,2);
   requestAnimationFrame(drawFire); })();
 
 /* sparks + shockwave rings + embers (3D depth via z) */
 const embers=Array.from({length:110},()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight,
   vy:-(.4+Math.random()*1.6),vx:(Math.random()-.5)*.8,r:.8+Math.random()*3,z:.3+Math.random(),tw:Math.random()*9}));
-let frames=0,lastFps=performance.now();
+let frames=0,lastFps=performance.now(),fpsEMA=60;
 (function drawSparks(){ PX.clearRect(0,0,W,H); PX.globalCompositeOperation='lighter';
   embers.forEach(p=>{ p.y+=p.vy*p.z;p.x+=p.vx+Math.sin(Date.now()/500+p.tw)*.5;p.tw+=.04;
     if(p.y<-12){p.y=H+12;p.x=Math.random()*W;}
     PX.fillStyle=`rgba(255,${130+Math.random()*110|0},40,${.4+.5*p.z})`;
-    PX.shadowColor='#ff7a00';PX.shadowBlur=10*p.z;
-    PX.beginPath();PX.arc(p.x,p.y,p.r*p.z,0,7);PX.fill();PX.shadowBlur=0; });
+    PX.beginPath();PX.arc(p.x,p.y,p.r*p.z,0,7);PX.fill(); });
   for(let i=sparks.length-1;i>=0;i--){ const p=sparks[i];
     p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.life-=p.decay;
     if(p.life<=0){sparks.splice(i,1);continue;}
@@ -416,19 +418,25 @@ let frames=0,lastFps=performance.now();
     PX.beginPath();PX.moveTo(p.x,p.y);PX.lineTo(p.x-p.vx*2,p.y-p.vy*2);PX.stroke(); }
   for(let i=rings.length-1;i>=0;i--){ const r=rings[i]; r.r+=15;r.a-=.032;
     if(r.a<=0){rings.splice(i,1);continue;}
-    PX.strokeStyle=`rgba(255,200,100,${r.a})`;PX.lineWidth=r.w||3;
-    PX.shadowColor='#ffb03a';PX.shadowBlur=22;PX.beginPath();PX.arc(r.x,r.y,r.r,0,7);PX.stroke();PX.shadowBlur=0; }
+    PX.strokeStyle=`rgba(255,150,40,${r.a*.35})`;PX.lineWidth=(r.w||3)*3;
+    PX.beginPath();PX.arc(r.x,r.y,r.r,0,7);PX.stroke();
+    PX.strokeStyle=`rgba(255,210,120,${r.a})`;PX.lineWidth=r.w||3;
+    PX.beginPath();PX.arc(r.x,r.y,r.r,0,7);PX.stroke(); }
   // meteor heads: white-hot cores with fire glow
   meteors.forEach(m=>{ const g=PX.createRadialGradient(m.x,m.y,0,m.x,m.y,m.r*5);
     g.addColorStop(0,'rgba(255,255,240,.95)');g.addColorStop(.3,'rgba(255,200,80,.8)');g.addColorStop(1,'rgba(255,80,0,0)');
     PX.fillStyle=g;PX.beginPath();PX.arc(m.x,m.y,m.r*5,0,7);PX.fill(); });
   frames++; const now=performance.now();
-  if(now-lastFps>800){ document.getElementById('fps').textContent=Math.round(frames*1000/(now-lastFps)); frames=0;lastFps=now; }
+  if(now-lastFps>800){ const inst=Math.round(frames*1000/(now-lastFps)); frames=0;lastFps=now;
+    document.getElementById('fps').textContent=inst; fpsEMA=fpsEMA*.6+inst*.4;
+    // auto smooth-mode: drop render resolution until animation stays fluid
+    if(fpsEMA<38&&DPR>1){ DPR=Math.max(1,+(DPR-0.5).toFixed(2)); sizeAll(); fpsEMA=60;
+      try{ if(window._csbsToast) window._csbsToast('AUTO QUALITY • smooth mode'); }catch(e){} } }
   requestAnimationFrame(drawSparks); })();
 
 /* film grain */
 (function drawGrain(){ const s=128; GX.clearRect(0,0,W,H);
-  for(let i=0;i<160;i++){ GX.fillStyle=`rgba(255,255,255,${Math.random()*.5})`;
+  for(let i=0;i<110;i++){ GX.fillStyle=`rgba(255,255,255,${Math.random()*.5})`;
     GX.fillRect(Math.random()*W,Math.random()*H,1,1); }
   setTimeout(()=>requestAnimationFrame(drawGrain),90); })();
 </script>
