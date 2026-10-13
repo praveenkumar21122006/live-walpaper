@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>if(/[?&]display=1/.test(location.search))document.documentElement.className+=' display-mode';</script>
-<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<script src="mqtt.min.js"></script>
 <title>DEPT OF CSBS — 3D Ultra-HD Fire Experience</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -98,6 +98,13 @@
     text-shadow:0 0 18px #2bff70,0 0 60px #00c853,0 4px 20px #000;
     opacity:0;transform:scale(.8);transition:opacity .25s,transform .25s}
   #toast.show{opacity:1;transform:scale(1)}
+  /* sync status pill: visible in EVERY mode (even fullscreen/display) for a few seconds */
+  #syncPill{position:fixed;left:50%;bottom:8%;transform:translateX(-50%) scale(.9);z-index:60;pointer-events:none;
+    background:rgba(0,0,0,.65);border:1px solid rgba(125,255,154,.7);color:#d8ffe2;
+    font-size:clamp(15px,2.4vw,26px);font-weight:700;letter-spacing:.14em;padding:.5em 1.1em;border-radius:99px;
+    text-shadow:0 0 12px #2bff70;box-shadow:0 0 24px rgba(0,200,83,.5);
+    opacity:0;transition:opacity .3s,transform .3s}
+  #syncPill.show{opacity:1;transform:translateX(-50%) scale(1)}
   /* display mode: other desktops show ONLY fullscreen button + wallpaper (no sync button) */
   .display-mode #syncAllBtn,.display-mode #hud,.display-mode #hint,.display-mode #toast{display:none!important}
   /* true fullscreen: hide every UI element, animation only */
@@ -133,13 +140,17 @@
   <button onclick="toggleFS()">⛶ FULLSCREEN</button>
 </div>
 <div id="toast"></div>
+<div id="syncPill"></div>
 <div id="hint">Press <b>F</b> fullscreen &nbsp;•&nbsp; same file on all desktops = simultaneous show &nbsp;•&nbsp; move mouse for 3D parallax</div>
 
 <script>
 /* ===== SYNCED TIMELINE (all desktops show same frame) ===== */
 const LOOP = 14;
 let clockOffset = 0, syncEpoch = 0; // syncEpoch = shared start-time broadcast by the controller
-const loopTime = ()=> ((Date.now()/1000 - syncEpoch + clockOffset) % LOOP + LOOP) % LOOP;
+let anchorPerf = null; // set on SYNC receipt: loop restarts locally -> immune to PC clock differences
+const loopTime = ()=> anchorPerf===null
+  ? ((Date.now()/1000 - syncEpoch + clockOffset) % LOOP + LOOP) % LOOP
+  : (((performance.now()-anchorPerf)/1000) % LOOP + LOOP) % LOOP;
 function restart(){ const n=Date.now()/1000; clockOffset = Math.ceil(n)-n; }
 function toggleFS(){ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
   else document.exitFullscreen(); }
@@ -239,6 +250,9 @@ update();
   const toast=(msg)=>{ const el=document.getElementById('toast'); el.textContent=msg;
     el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200); };
   window._csbsToast=toast;
+  const pill=(msg)=>{ const el=document.getElementById('syncPill'); el.textContent=msg;
+    el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2600); };
+  let toldLink=false;
   const params=new URLSearchParams(location.search);
   const ROOM=((params.get('room')||'csbs-main').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40))||'csbs-main';
   const TOPIC='csbs-fire/'+ROOM+'/sync';
@@ -249,11 +263,13 @@ update();
     if(linked.lan) parts.push('LAN'+(lanCount===null?'':' • '+lanCount+' screen(s)'));
     if(linked.cloud) parts.push('CLOUD '+ROOM);
     dot.textContent=on?('LINKED '+parts.join(' + ')):'connecting…';
-    if(on) btn.style.display=''; };
+    if(on) btn.style.display='';
+    if(on&&!toldLink){ toldLink=true; pill('LINKED ✓ — press SYNC on host'); } };
   const clearAll=()=>{ try{ mchars.forEach(c=>c.classList.remove('lit'));
     chars.forEach(c=>c.classList.remove('lit')); rchars.forEach(c=>c.classList.remove('lit'));
     fchars.forEach(c=>c.classList.remove('lit')); }catch(e){} };
-  const onEpoch=(epoch)=>{ syncEpoch=epoch; clearAll(); toast('SYNCED ✓ — ALL SCREENS TOGETHER'); };
+  const onEpoch=(epoch)=>{ syncEpoch=epoch; anchorPerf=performance.now(); clearAll();
+    pill('SYNCED ✓ — ALL SCREENS TOGETHER'); toast('SYNCED ✓ — ALL SCREENS TOGETHER'); };
   // ---- 1) LAN via sync-server.js (http only) ----
   if(location.protocol.indexOf('http')===0){
     try{ const es=new EventSource('events');
@@ -268,7 +284,7 @@ update();
     hint.innerHTML='For one-button sync: deploy on Vercel (see README) &amp; open the SAME link everywhere &nbsp;•&nbsp; Press <b>F</b> fullscreen';
   }
   // ---- 2) CLOUD via public MQTT (works on Vercel, needs internet) ----
-  const BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+  const BROKERS=['wss://mqtt.eclipseprojects.io:443/mqtt','wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
   const cloudConnect=(i)=>{ if(typeof mqtt==='undefined') return; // CDN blocked: LAN/file-clock still works
     try{ cloudClient=mqtt.connect(BROKERS[i],{connectTimeout:8000,reconnectPeriod:5000,
       clientId:'csbs-'+Math.random().toString(16).slice(2,10),clean:true});
@@ -280,13 +296,16 @@ update();
     cloudClient.on('error',()=>{ try{cloudClient.end(true);}catch(e){} cloudClient=null; linked.cloud=false; paint();
       if(i+1<BROKERS.length) cloudConnect(i+1); }); };
   cloudConnect(0);
-  btn.onclick=()=>{ const epoch=Date.now()/1000+1.5; // 1.5s lead: every screen starts together
+  btn.onclick=()=>{ const epoch=Date.now()/1000+1.5; // shared mark; every screen restarts locally on receipt
     const payload=JSON.stringify({epoch:epoch,room:ROOM}); const via=[];
     const done=()=>{ if(via.length) toast('📡 SYNC SENT ('+via.join('+')+') — ALL SCREENS'); };
+    if(!linked.lan&&!linked.cloud){ toast('not linked yet — wait for LINKED'); pill('NOT LINKED — check internet'); return; }
+    onEpoch(epoch); // host restarts too — otherwise the host itself stays out of sync!
+    pill('📡 SYNC SENT — ALL SCREENS');
     if(linked.lan) fetch('sync',{method:'POST',body:payload})
       .then(r=>r.json()).then(j=>{ via.push('LAN:'+j.screens); done(); }).catch(()=>{});
     if(cloudClient&&linked.cloud) try{ cloudClient.publish(TOPIC,payload,{qos:1},()=>{ via.push('CLOUD'); done(); }); }catch(e){}
-    if(!linked.lan&&!linked.cloud) toast('not linked yet — wait for LINKED'); };
+  };
 })();
 
 /* ===== HIGH-RESOLUTION SETUP (devicePixelRatio aware) ===== */
