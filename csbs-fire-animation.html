@@ -285,9 +285,9 @@ update();
     hint.innerHTML='For one-button sync: deploy on Vercel (see README) &amp; open the SAME link everywhere &nbsp;•&nbsp; Press <b>F</b> fullscreen';
   }
   // ---- 2) CLOUD via public MQTT (works on Vercel, needs internet) ----
-  const BROKERS=['wss://mqtt.eclipseprojects.io:443/mqtt','wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+  const BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
   const cloudConnect=(i)=>{ if(typeof mqtt==='undefined'){ setTimeout(()=>cloudConnect(0),3000); return; } // lib still loading: retry
-    try{ cloudClient=mqtt.connect(BROKERS[i],{connectTimeout:8000,reconnectPeriod:5000,
+    try{ cloudClient=mqtt.connect(BROKERS[i],{connectTimeout:5000,reconnectPeriod:5000,
       clientId:'csbs-'+Math.random().toString(16).slice(2,10),clean:true});
     }catch(e){ if(i+1<BROKERS.length) cloudConnect(i+1); return; }
     cloudClient.on('connect',()=>{ try{cloudClient.subscribe(TOPIC,{qos:1});}catch(e){} linked.cloud=true; paint(); });
