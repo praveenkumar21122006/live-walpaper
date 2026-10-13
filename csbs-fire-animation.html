@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<title>DEPT OF CSBS — 3D Ultra-HD Fire Experience</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:'Segoe UI',Arial,sans-serif;cursor:none;
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  #stage{position:fixed;inset:0;z-index:0;
+    background:radial-gradient(ellipse at 50% 78%, #3a0e00 0%, #180400 38%, #050101 65%, #000 100%);}
+  #stars{position:fixed;inset:0;z-index:1}
+  canvas.layer{position:fixed;inset:0;width:100vw;height:100vh}
+  #smokeCanvas{z-index:2} #fireCanvas{z-index:3} #sparkCanvas{z-index:4;pointer-events:none}
+  /* vignette + cinematic bars */
+  #vignette{position:fixed;inset:0;z-index:6;pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.55) 100%);}
+  #grain{position:fixed;inset:0;z-index:6;pointer-events:none;opacity:.05;mix-blend-mode:overlay}
+  /* 3D scene */
+  #scene{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;
+    perspective:1400px;perspective-origin:50% 42%;pointer-events:none}
+  #camera{transform-style:preserve-3d;will-change:transform;text-align:center}
+  #content{transform-style:preserve-3d;will-change:transform}
+  .dept{display:flex;justify-content:center;gap:.18em;font-size:clamp(16px,2.6vw,38px);letter-spacing:.12em;color:#ffd9a0;font-weight:700;
+    transform-style:preserve-3d;min-height:1.6em}
+  .dept .mchar{display:inline-block;opacity:0;transform:translateX(-110vw) rotateY(-85deg) rotateZ(-12deg) scale(1.4);
+    filter:blur(10px) brightness(2.5);transition:transform .6s cubic-bezier(.16,1.4,.32,1),opacity .35s,filter .5s;
+    text-shadow:0 1px 0 #7a2a00,0 2px 0 #5a1a00,0 3px 0 #3a1000,0 6px 18px rgba(0,0,0,.8),0 0 22px #ff6a00,0 0 60px #ff3d00}
+  .dept .mchar.lit{opacity:1;transform:translateX(0) rotateY(0) rotateZ(0) scale(1);filter:blur(0) brightness(1)}
+  .dept .mchar.space{width:.5em}
+  .dept-wrap{text-align:center}
+  .dept-wrap .line{display:block;margin:8px auto;width:min(560px,62vw);height:2px;
+    background:linear-gradient(90deg,transparent,#ffb03a,transparent);box-shadow:0 0 14px #ff7a00;
+    opacity:0;transition:opacity .8s}
+  .dept-wrap.showlines .line{opacity:1}
+  /* 3D extruded CSBS */
+  .csbs{display:flex;gap:.05em;justify-content:center;margin:.08em 0 .12em;font-weight:900;line-height:1;
+    font-size:clamp(110px,22vw,320px);font-family:Impact,'Arial Black','Segoe UI Black',sans-serif;
+    transform-style:preserve-3d}
+  .char{position:relative;display:inline-block;opacity:0;transform-style:preserve-3d;
+    /* start OFF-SCREEN sideways: odd = left, even = right — they fly in and park side-by-side */
+    transform:translateX(-115vw) rotateY(-80deg) rotateX(12deg) scale(1.6);filter:blur(18px) brightness(3);
+    background:linear-gradient(180deg,#ffffff 0%,#fff3b0 12%,#ffd23e 30%,#ff9a00 50%,#ff4d00 70%,#a31300 88%,#4d0500 100%);
+    background-size:100% 220%;
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    -webkit-text-stroke:2px rgba(255,190,80,.65);}
+  @keyframes burnflow{0%,100%{background-position:50% 0%}50%{background-position:50% 65%}}
+  .csbs .char:nth-child(even):not(.lit){transform:translateX(115vw) rotateY(80deg) rotateX(-12deg) scale(1.6)}
+  .char::before{ /* 3D extrusion depth */
+    content:attr(data-c);position:absolute;left:0;top:0;z-index:-1;color:transparent;
+    -webkit-text-stroke:0;background:none;
+    text-shadow:1px 1px 0 #6a1400,2px 2px 0 #5c1000,3px 3px 0 #4d0d00,4px 4px 0 #3d0a00,
+      5px 5px 0 #2e0700,6px 6px 0 #200500,7px 7px 0 #120300,8px 8px 0 #000,
+      12px 14px 28px rgba(0,0,0,.85);
+    transform:translateZ(-14px);opacity:.95}
+  .char::after{ /* glossy top highlight */
+    content:attr(data-c);position:absolute;left:0;top:0;color:transparent;background:linear-gradient(180deg,rgba(255,255,255,.85),transparent 42%);
+    -webkit-background-clip:text;background-clip:text;transform:translateZ(6px);opacity:.5;pointer-events:none}
+  .csbs .char.lit, #reflect .char.lit{opacity:1;transform:translateX(0) rotateY(0) rotateX(0) scale(1) translateZ(0);filter:blur(0) brightness(1);
+    transition:transform .65s cubic-bezier(.16,1.35,.32,1),opacity .3s,filter .5s;
+    animation:float3d 4s infinite ease-in-out, flicker 1.5s infinite alternate ease-in-out, burnflow 2.4s infinite ease-in-out}
+  @keyframes float3d{0%,100%{translate:0 0}50%{translate:0 -12px}}
+  @keyframes flicker{
+    0%{filter:brightness(1)}50%{filter:brightness(1.22)}100%{filter:brightness(.96)}}
+  .char.lit:nth-child(2){animation-delay:0s,.15s,.6s}.char.lit:nth-child(3){animation-delay:0s,.35s,1.2s}.char.lit:nth-child(4){animation-delay:0s,.55s,1.8s}
+  /* floor reflection */
+  #reflect{margin:-.28em 0 0;transform:scaleY(-1);opacity:.28;filter:blur(6px) brightness(.8);
+    mask-image:linear-gradient(180deg,transparent 20%,black 90%);-webkit-mask-image:linear-gradient(180deg,transparent 20%,black 90%);}
+  #reflect .char::before,#reflect .char::after{display:none}
+  .full{margin-top:.6em;min-height:1.5em;font-size:clamp(13px,2.2vw,28px);letter-spacing:.18em;color:#ffe9c4;font-weight:600;
+    transform-style:preserve-3d;
+    text-shadow:0 2px 0 #4d0d00,0 8px 24px #000,0 0 18px #ff6a00,0 0 70px #ff3d00}
+  .full .fchar{display:inline-block;opacity:0;transform:translateX(60vw) rotateY(70deg) scale(1.3);
+    filter:blur(8px) brightness(2);transition:transform .45s cubic-bezier(.2,1.4,.4,1),opacity .3s,filter .4s}
+  .full .fchar.lit{opacity:1;transform:translateX(0) rotateY(0) scale(1);filter:blur(0) brightness(1)}
+  .full .fchar.space{width:.55em}
+  .tag{margin-top:14px;font-size:clamp(10px,1.4vw,16px);letter-spacing:.42em;text-indent:.42em;color:#ffab4d;opacity:0;transition:opacity .9s;
+    text-shadow:0 0 12px #ff6a00}
+  .tag.show{opacity:.95}
+  .bar{width:min(560px,64vw);height:4px;margin:26px auto 0;background:rgba(255,110,0,.16);border-radius:99px;overflow:hidden;opacity:0;box-shadow:0 0 0 1px rgba(255,150,50,.25)}
+  .bar.show{opacity:1}
+  #progress{height:100%;width:0%;background:linear-gradient(90deg,#ff2200,#ffae00,#fff7c0);box-shadow:0 0 20px #ff6a00}
+  #flash{position:fixed;inset:0;z-index:9;pointer-events:none;opacity:0;
+    background:radial-gradient(circle at 50% 55%,#fff 0%,#ffd23e 26%,rgba(255,90,0,.65) 55%,transparent 76%)}
+  #shake{position:fixed;inset:0;z-index:5;pointer-events:none}
+  #hud{position:fixed;top:12px;left:14px;z-index:20;color:rgba(255,210,160,.6);font-size:12px;letter-spacing:.14em}
+  #hud b{color:#ffcf8a}
+  #controls{position:fixed;top:12px;right:14px;z-index:20;display:flex;gap:8px}
+  #controls button{cursor:pointer;background:rgba(255,110,0,.16);border:1px solid rgba(255,150,50,.55);color:#ffd9a8;
+    padding:8px 14px;border-radius:10px;font-size:13px;letter-spacing:.08em;backdrop-filter:blur(6px)}
+  #controls button:hover{background:rgba(255,110,0,.4)}
+  #hint{position:fixed;left:0;right:0;bottom:12px;z-index:20;text-align:center;color:rgba(255,200,150,.55);font-size:13px;letter-spacing:.1em}
+  #toast{position:fixed;top:16%;left:0;right:0;z-index:30;text-align:center;pointer-events:none;
+    font-size:clamp(22px,4vw,52px);font-weight:800;letter-spacing:.18em;color:#eaffea;
+    text-shadow:0 0 18px #2bff70,0 0 60px #00c853,0 4px 20px #000;
+    opacity:0;transform:scale(.8);transition:opacity .25s,transform .25s}
+  #toast.show{opacity:1;transform:scale(1)}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<canvas id="stars" class="layer"></canvas>
+<canvas id="smokeCanvas" class="layer"></canvas>
+<canvas id="fireCanvas" class="layer"></canvas>
+<canvas id="sparkCanvas" class="layer"></canvas>
+
+<div id="scene"><div id="camera"><div id="content">
+  <div class="dept-wrap" id="deptWrap"><span class="line"></span><div class="dept" id="dept"></div><span class="line"></span></div>
+  <div class="csbs" id="csbs">
+    <span class="char" data-c="C">C</span><span class="char" data-c="S">S</span><span class="char" data-c="B">B</span><span class="char" data-c="S">S</span>
+  </div>
+  <div class="csbs" id="reflect" aria-hidden="true">
+    <span class="char" data-c="C">C</span><span class="char" data-c="S">S</span><span class="char" data-c="B">B</span><span class="char" data-c="S">S</span>
+  </div>
+  <div class="full" id="full"></div>
+  <div class="tag" id="tag">★&nbsp;&nbsp;INNOVATE • INTEGRATE • INSPIRE&nbsp;&nbsp;★</div>
+  <div class="bar" id="bar"><div id="progress"></div></div>
+</div></div></div>
+
+<div id="vignette"></div>
+<canvas id="grain"></canvas>
+<div id="flash"></div>
+<div id="hud">ULTRA-HD <b id="res">—</b> • 3D • <b id="fps">60</b> FPS • <span id="syncDot">STANDALONE</span></div>
+<div id="controls">
+  <button id="syncAllBtn" style="display:none;border-color:#7dff9a;color:#c9ffd9;background:rgba(40,180,80,.18)">📡 SYNC ALL SCREENS</button>
+  <button id="qBtn">QUALITY: AUTO-HD</button>
+  <button onclick="toggleFS()">⛶ FULLSCREEN</button>
+  <button onclick="restart()">↻ RE-SYNC</button>
+</div>
+<div id="toast"></div>
+<div id="hint">Press <b>F</b> fullscreen &nbsp;•&nbsp; same file on all desktops = simultaneous show &nbsp;•&nbsp; move mouse for 3D parallax</div>
+
+<script>
+/* ===== SYNCED TIMELINE (all desktops show same frame) ===== */
+const LOOP = 14;
+let clockOffset = 0, syncEpoch = 0; // syncEpoch = shared start-time broadcast by the controller
+const loopTime = ()=> ((Date.now()/1000 - syncEpoch + clockOffset) % LOOP + LOOP) % LOOP;
+function restart(){ const n=Date.now()/1000; clockOffset = Math.ceil(n)-n; }
+function toggleFS(){ if(!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen(); }
+addEventListener('keydown',e=>{ if(e.key==='f'||e.key==='F')toggleFS(); if(e.key==='r'||e.key==='R')restart(); });
+setTimeout(()=>document.getElementById('hint').style.opacity=0,9000);
+
+const deptWrap=document.getElementById('deptWrap'), dept=document.getElementById('dept'), full=document.getElementById('full'),
+  tag=document.getElementById('tag'), bar=document.getElementById('bar'),
+  progress=document.getElementById('progress'), flash=document.getElementById('flash'),
+  camera=document.getElementById('camera'), content=document.getElementById('content'),
+  chars=[...document.querySelectorAll('#csbs .char')], rchars=[...document.querySelectorAll('#reflect .char')];
+
+// Build DEPARTMENT OF letter-by-letter (side-by-side parking)
+const DEPT_TXT='DEPARTMENT OF';
+dept.innerHTML=[...DEPT_TXT].map(ch=>ch===' '
+  ? `<span class="mchar space">&nbsp;</span>` : `<span class="mchar">${ch}</span>`).join('');
+const mchars=[...dept.querySelectorAll('.mchar')];
+// Build subtitle letter-by-letter (side-by-side typewriter from the side)
+const FULL_TXT='COMPUTER SCIENCE & BUSINESS SYSTEMS';
+full.innerHTML=[...FULL_TXT].map(ch=>ch===' '
+  ? `<span class="fchar space">&nbsp;</span>` : `<span class="fchar">${ch}</span>`).join('');
+const fchars=[...full.querySelectorAll('.fchar')];
+
+// One-by-one, side-by-side timeline — everything parks in a row
+const T={deptStart:.3, deptStep:.16, c0:3.0, gap:1.2, fullStart:8.0, fullStep:.07, tagIn:10.6, flashAt:7.7, fadeOut:12.4};
+const LOOP_END=14;
+let _prevLoop=0;
+function burstAt(el,big){ try{ const r=el.getBoundingClientRect();
+  // streak across screen while flying: burst at landing point
+  bursts.push({x:r.left+r.width/2,y:r.top+r.height/2,big:!!big}); }catch(e){} }
+
+let bursts=[], shake=0, mx=0,my=0;
+let intensity=1, letterFlash=0; // driven by update(), consumed by fire engine below
+addEventListener('mousemove',e=>{ mx=(e.clientX/innerWidth-.5)*2; my=(e.clientY/innerHeight-.5)*2; });
+
+function update(){
+  const t=loopTime();
+  if(t<_prevLoop-5){ // loop restarted: clear all letters
+    mchars.forEach(c=>c.classList.remove('lit'));
+    chars.forEach(c=>c.classList.remove('lit')); rchars.forEach(c=>c.classList.remove('lit'));
+    fchars.forEach(c=>c.classList.remove('lit'));
+  }
+  _prevLoop=t;
+  const active=t<T.fadeOut;
+  deptWrap.classList.toggle('showlines',t>T.deptStart&&active);
+  bar.classList.toggle('show',t>T.deptStart&&active);
+  // 1) DEPARTMENT OF — slides in one-by-one from the LEFT, parks side-by-side
+  mchars.forEach((c,i)=>{
+    const on=t>(T.deptStart+i*T.deptStep)&&active;
+    if(on&&!c.classList.contains('lit')){ c.classList.add('lit'); burstAt(c,false); shake=Math.min(12,shake+3); }
+    else if(!on&&t<T.deptStart) c.classList.remove('lit');
+  });
+  // 2) CSBS — big 3D letters fly in one-by-one from ALTERNATE SIDES, park side-by-side
+  chars.forEach((c,i)=>{
+    const on=t>(T.c0+i*T.gap)&&active;
+    if(on&&!c.classList.contains('lit')){ c.classList.add('lit'); rchars[i].classList.add('lit');
+      burstAt(c,true); letterFlash=Math.min(1.2,letterFlash+.55); shake=Math.min(30,shake+20); }
+    else if(!on&&t<T.c0){ c.classList.remove('lit'); rchars[i].classList.remove('lit'); }
+  });
+  // 3) subtitle — types in one-by-one from the RIGHT, parks side-by-side
+  fchars.forEach((c,i)=>{
+    const on=t>(T.fullStart+i*T.fullStep)&&active;
+    if(on&&!c.classList.contains('lit')){ c.classList.add('lit'); if(i%4===0) burstAt(c,false); }
+    else if(!on&&t<T.fullStart) c.classList.remove('lit');
+  });
+  tag.classList.toggle('show',t>T.tagIn&&active);
+  progress.style.width=Math.min(100,t/T.fadeOut*100)+'%';
+  // finale surge: firewall erupts once the full line is complete
+  const finale=t>T.tagIn&&active;
+  intensity+= ((finale?2.6:1)-intensity)*.04;
+  // flash = synced milestone flash + per-letter impact flash (decays fast)
+  letterFlash*=.9;
+  const df=t-T.flashAt;
+  flash.style.opacity=Math.min(1,((df>0&&df<.55)?(.9*(1-df/.55)):0)+letterFlash*.75);
+  content.style.opacity=t>T.fadeOut?Math.max(0,1-(t-T.fadeOut)/1.1):1;
+  // cinematic 3D camera drift + mouse parallax + impact shake (heavier)
+  shake*=.9;
+  const sx=(Math.random()-.5)*shake, sy=(Math.random()-.5)*shake, rot=(Math.random()-.5)*shake*.12;
+  const driftX=Math.sin(t*.7)*7+mx*26, driftY=Math.cos(t*.55)*6-my*18;
+  camera.style.transform=`translate(${sx+driftX*.3}px,${sy+driftY*.3}px) rotate(${rot}deg) rotateY(${driftX*.35}deg) rotateX(${-driftY*.3}deg) scale(${1+Math.max(0,(t-T.flashAt))*0.004})`;
+  content.style.transform=`rotateY(${Math.sin(t*.5)*4}deg)`;
+  requestAnimationFrame(update);
+}
+update();
+
+/* ===== ONE-BUTTON SYNC: every screen restarts together =====
+   HOW IT LINKS (auto, in order):
+   1) LAN  — START-SYNC-SERVER.bat on main PC (instant, offline-safe).
+   2) CLOUD — public MQTT channel, works on Vercel/static hosting from anywhere.
+   Open the SAME link (same ?room=) on all desktops, press SYNC ALL on the main laptop. */
+(function initSync(){
+  const btn=document.getElementById('syncAllBtn'), dot=document.getElementById('syncDot'),
+        hint=document.getElementById('hint');
+  const toast=(msg)=>{ const el=document.getElementById('toast'); el.textContent=msg;
+    el.classList.add('show'); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove('show'),2200); };
+  window._csbsToast=toast;
+  const params=new URLSearchParams(location.search);
+  const ROOM=((params.get('room')||'csbs-main').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,40))||'csbs-main';
+  const TOPIC='csbs-fire/'+ROOM+'/sync';
+  const linked={lan:false,cloud:false}; let lanCount=null, cloudClient=null;
+  const paint=()=>{ const on=linked.lan||linked.cloud;
+    dot.style.color=on?'#7dff9a':'#ffb36a';
+    const parts=[];
+    if(linked.lan) parts.push('LAN'+(lanCount===null?'':' • '+lanCount+' screen(s)'));
+    if(linked.cloud) parts.push('CLOUD '+ROOM);
+    dot.textContent=on?('LINKED '+parts.join(' + ')):'connecting…';
+    if(on) btn.style.display=''; };
+  const clearAll=()=>{ try{ mchars.forEach(c=>c.classList.remove('lit'));
+    chars.forEach(c=>c.classList.remove('lit')); rchars.forEach(c=>c.classList.remove('lit'));
+    fchars.forEach(c=>c.classList.remove('lit')); }catch(e){} };
+  const onEpoch=(epoch)=>{ syncEpoch=epoch; clearAll(); toast('SYNCED ✓ — ALL SCREENS TOGETHER'); };
+  // ---- 1) LAN via sync-server.js (http only) ----
+  if(location.protocol.indexOf('http')===0){
+    try{ const es=new EventSource('events');
+      es.onopen=()=>{ linked.lan=true; paint();
+        setInterval(()=>{ fetch('count').then(r=>r.json()).then(j=>{ lanCount=j.n; paint(); }).catch(()=>{}); },4000); };
+      es.onerror=()=>{ linked.lan=false; paint(); };
+      es.onmessage=(ev)=>{ try{ const d=JSON.parse(ev.data); if(d.epoch) onEpoch(d.epoch); }catch(e){} };
+    }catch(e){}
+    hint.innerHTML='Open this SAME link on all desktops (room: <b>'+ROOM+'</b>) &nbsp;•&nbsp; press <b>SYNC ALL</b> on main laptop &nbsp;•&nbsp; <b>F</b> fullscreen';
+  } else {
+    dot.textContent='FILE MODE — auto-sync by clock';
+    hint.innerHTML='For one-button sync: deploy on Vercel (see README) &amp; open the SAME link everywhere &nbsp;•&nbsp; Press <b>F</b> fullscreen';
+  }
+  // ---- 2) CLOUD via public MQTT (works on Vercel, needs internet) ----
+  const BROKERS=['wss://broker.emqx.io:8084/mqtt','wss://test.mosquitto.org:8081/mqtt'];
+  const cloudConnect=(i)=>{ if(typeof mqtt==='undefined') return; // CDN blocked: LAN/file-clock still works
+    try{ cloudClient=mqtt.connect(BROKERS[i],{connectTimeout:8000,reconnectPeriod:5000,
+      clientId:'csbs-'+Math.random().toString(16).slice(2,10),clean:true});
+    }catch(e){ if(i+1<BROKERS.length) cloudConnect(i+1); return; }
+    cloudClient.on('connect',()=>{ try{cloudClient.subscribe(TOPIC,{qos:1});}catch(e){} linked.cloud=true; paint(); });
+    cloudClient.on('message',(t,m)=>{ if(t===TOPIC){ try{ const d=JSON.parse(m.toString()); if(d.epoch) onEpoch(d.epoch); }catch(e){} } });
+    cloudClient.on('reconnect',()=>{ linked.cloud=false; paint(); });
+    cloudClient.on('close',()=>{ linked.cloud=false; paint(); });
+    cloudClient.on('error',()=>{ try{cloudClient.end(true);}catch(e){} cloudClient=null; linked.cloud=false; paint();
+      if(i+1<BROKERS.length) cloudConnect(i+1); }); };
+  cloudConnect(0);
+  btn.onclick=()=>{ const epoch=Date.now()/1000+1.5; // 1.5s lead: every screen starts together
+    const payload=JSON.stringify({epoch:epoch,room:ROOM}); const via=[];
+    const done=()=>{ if(via.length) toast('📡 SYNC SENT ('+via.join('+')+') — ALL SCREENS'); };
+    if(linked.lan) fetch('sync',{method:'POST',body:payload})
+      .then(r=>r.json()).then(j=>{ via.push('LAN:'+j.screens); done(); }).catch(()=>{});
+    if(cloudClient&&linked.cloud) try{ cloudClient.publish(TOPIC,payload,{qos:1},()=>{ via.push('CLOUD'); done(); }); }catch(e){}
+    if(!linked.lan&&!linked.cloud) toast('not linked yet — wait for LINKED'); };
+})();
+
+/* ===== HIGH-RESOLUTION SETUP (devicePixelRatio aware) ===== */
+let DPR=Math.min(devicePixelRatio||1,2), QMODE=0; // 0 auto, 1 ultra(2x), 2 perf(1x)
+const qBtn=document.getElementById('qBtn');
+qBtn.onclick=()=>{ QMODE=(QMODE+1)%3;
+  DPR=QMODE===0?Math.min(devicePixelRatio||1,2):QMODE===1?Math.min(devicePixelRatio||1,2.5):1;
+  qBtn.textContent='QUALITY: '+(QMODE===0?'AUTO-HD':QMODE===1?'ULTRA 4K':'PERFORMANCE'); sizeAll(); };
+function fit(c){ const d=DPR; c.width=innerWidth*d; c.height=innerHeight*d;
+  c.getContext('2d').setTransform(d,0,0,d,0,0); return c.getContext('2d'); }
+const starsC=document.getElementById('stars'),smokeC=document.getElementById('smokeCanvas'),
+  fireC=document.getElementById('fireCanvas'),sparkC=document.getElementById('sparkCanvas'),grainC=document.getElementById('grain');
+let SX,EX,FX,PX,GX,W,H;
+function sizeAll(){ W=innerWidth;H=innerHeight;
+  SX=fit(starsC);EX=fit(smokeC);FX=fit(fireC);PX=fit(sparkC);GX=fit(grainC);
+  document.getElementById('res').textContent=`${Math.round(W*DPR)}×${Math.round(H*DPR)} @${DPR.toFixed(1)}x`;
+}
+addEventListener('resize',sizeAll); sizeAll();
+
+/* starfield with depth */
+const starArr=Array.from({length:160},()=>({x:Math.random(),y:Math.random()*.7,z:.2+Math.random()*.8,tw:Math.random()*9}));
+(function drawStars(){ SX.clearRect(0,0,W,H);
+  const t=loopTime();
+  starArr.forEach(s=>{ s.tw+=.03; const a=.25+.55*Math.abs(Math.sin(s.tw))*(s.z);
+    SX.fillStyle=`rgba(255,${180+s.z*60|0},130,${a})`;
+    const px=(s.x*W+Math.sin(t*.2)*12*s.z), py=s.y*H;
+    SX.fillRect(px,py,s.z*2.4,s.z*2.4); });
+  requestAnimationFrame(drawStars); })();
+
+/* smoke */
+const puffs=Array.from({length:26},()=>({x:Math.random()*innerWidth,y:innerHeight*.4+Math.random()*innerHeight*.6,
+  r:60+Math.random()*130,vx:(Math.random()-.5)*.4,vy:-.25-Math.random()*.5,a:.05+Math.random()*.07}));
+(function drawSmoke(){ EX.clearRect(0,0,W,H);
+  puffs.forEach(s=>{ s.x+=s.vx;s.y+=s.vy; if(s.y<-160){s.y=H+80;s.x=Math.random()*W;}
+    const g=EX.createRadialGradient(s.x,s.y,0,s.x,s.y,s.r);
+    g.addColorStop(0,`rgba(70,22,6,${s.a})`);g.addColorStop(1,'rgba(0,0,0,0)');
+    EX.fillStyle=g;EX.beginPath();EX.arc(s.x,s.y,s.r,0,7);EX.fill(); });
+  requestAnimationFrame(drawSmoke); })();
+
+/* main fire bodies — MAX IMPACT tuning */
+const flames=[];
+function spawnFlame(n){ n=Math.round(n*intensity);
+  for(let i=0;i<n;i++) if(flames.length<900) flames.push({
+  x:Math.random()*W,y:H+12,vx:(Math.random()-.5)*1.6,vy:-(2.2+Math.random()*5.5)*Math.min(intensity,1.8),
+  r:(10+Math.random()*30)*Math.min(intensity,1.6),life:1,decay:.004+Math.random()*.011,hue:6+Math.random()*44}); }
+function spawnBurst(x,y,big){ const n=big?230:60, ns=big?130:28;
+  for(let i=0;i<n;i++){ const a=Math.random()*Math.PI*2,s=2+Math.random()*(big?13:6);
+    if(flames.length<1500) flames.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-4,
+      r:8+Math.random()*24,life:1,decay:.008+Math.random()*.013,hue:8+Math.random()*48}); }
+  for(let i=0;i<ns;i++){ const a=Math.random()*Math.PI*2,s=4+Math.random()*(big?15:11);
+    sparks.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-5,z:.5+Math.random(),life:1,decay:.008+Math.random()*.013}); }
+  rings.push({x,y,r:10,a:1,w:5});
+  if(big){ rings.push({x,y,r:4,a:.9,w:3}); rings.push({x,y,r:2,a:.7,w:2}); } }
+function megaBurst(x,y){ // meteor impact / finale eruption core
+  spawnBurst(x,y,true); spawnBurst(x,y,true);
+  for(let i=0;i<80;i++){ const a=-Math.PI/2+(Math.random()-.5)*1.6,s=6+Math.random()*14;
+    if(flames.length<1500) flames.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,
+      r:10+Math.random()*26,life:1,decay:.007+Math.random()*.012,hue:10+Math.random()*45}); }
+  rings.push({x,y,r:16,a:1,w:7});
+  letterFlash=Math.min(1.2,letterFlash+.9); shake=Math.min(34,shake+22); }
+/* meteors: streak down, slam the floor, detonate */
+const meteors=[]; let nextMeteor=0;
+function spawnMeteor(){ meteors.push({x:Math.random()*W*.9+W*.05,y:-40,
+  vx:-(3+Math.random()*4),vy:9+Math.random()*6,r:4+Math.random()*5}); }
+(function meteorLoop(){ const now=performance.now();
+  if(now>nextMeteor){ spawnMeteor(); nextMeteor=now+900+Math.random()*1800; }
+  setTimeout(meteorLoop,300); })();
+const sparks=[],rings=[];
+(function drawFire(){ FX.globalCompositeOperation='source-over'; FX.clearRect(0,0,W,H);
+  const g=FX.createRadialGradient(W/2,H+40,60,W/2,H+40,W*.6);
+  g.addColorStop(0,'rgba(255,90,10,.4)');g.addColorStop(1,'rgba(0,0,0,0)');
+  FX.fillStyle=g;FX.fillRect(0,0,W,H);
+  spawnFlame(Math.round(3+DPR*3));
+  while(bursts.length){const b=bursts.pop();spawnBurst(b.x,b.y,b.big);}
+  // CSBS letters burn continuously: flames lick off every lit letter
+  for(let li=0; li<chars.length; li++){ const c=chars[li];
+    if(!c.classList.contains('lit')) continue;
+    const r=c.getBoundingClientRect();
+    if(r.width<4) continue;
+    const nE = 1 + (Math.random()<.6?1:0) + (intensity>1.6?1:0);
+    for(let k=0;k<nE;k++){
+      const ex=r.left+Math.random()*r.width, ey=r.bottom-Math.random()*r.height*.85;
+      if(flames.length<1500) flames.push({x:ex,y:ey,vx:(Math.random()-.5)*1.6,vy:-(1.5+Math.random()*3.2),
+        r:4+Math.random()*9,life:.9,decay:.016+Math.random()*.014,hue:10+Math.random()*42});
+    }
+    if(Math.random()<.25) sparks.push({x:r.left+Math.random()*r.width,y:r.top+Math.random()*r.height*.3,
+      vx:(Math.random()-.5)*4,vy:-(2+Math.random()*4),z:.5+Math.random()*.7,life:1,decay:.015});
+  }
+  // meteors streak + detonate on floor impact
+  for(let i=meteors.length-1;i>=0;i--){ const m=meteors[i];
+    m.x+=m.vx; m.y+=m.vy;
+    if(flames.length<1500) flames.push({x:m.x,y:m.y,vx:(Math.random()-.5)*2,vy:(Math.random()-.5)*2,
+      r:8+Math.random()*14,life:.9,decay:.03,hue:15+Math.random()*35});
+    if(Math.random()<.6) sparks.push({x:m.x,y:m.y,vx:-m.vx*.2+(Math.random()-.5)*3,vy:-m.vy*.2+(Math.random()-.5)*3,
+      z:.6+Math.random()*.8,life:1,decay:.02});
+    if(m.y>=H-70||m.x<-60){ meteors.splice(i,1); megaBurst(Math.max(40,Math.min(W-40,m.x)),H-70); } }
+  // finale eruption: firewall surges across the floor
+  if(intensity>1.6 && Math.random()<.75){
+    megaBurst(Math.random()*W, H-60-Math.random()*120); }
+  FX.globalCompositeOperation='lighter';
+  for(let i=flames.length-1;i>=0;i--){ const p=flames[i];
+    p.x+=p.vx+Math.sin(p.y*.02+i)*1.2;p.y+=p.vy;p.vy*=.986;p.life-=p.decay;p.r*=.986;
+    if(p.life<=0||p.r<1||p.y<-70){flames.splice(i,1);continue;}
+    const gr=FX.createRadialGradient(p.x,p.y,0,p.x,p.y,p.r*2);
+    gr.addColorStop(0,`hsla(${p.hue+22},100%,74%,${.92*p.life})`);
+    gr.addColorStop(.35,`hsla(${p.hue},100%,53%,${.78*p.life})`);
+    gr.addColorStop(.7,`hsla(${Math.max(0,p.hue-16)},95%,30%,${.34*p.life})`);
+    gr.addColorStop(1,'rgba(0,0,0,0)');
+    FX.fillStyle=gr;FX.beginPath();FX.arc(p.x,p.y,p.r*2,0,7);FX.fill(); }
+  // tall flame tongues (surge with finale intensity) + reflective floor line
+  const t=Date.now()/1000, surge=1+(intensity-1)*.9;
+  for(let x=0;x<W;x+=10){ const h=(56+Math.sin(x*.018+t*4.2)*26+Math.sin(x*.05-t*7)*16+Math.random()*7)*surge;
+    const gr=FX.createLinearGradient(0,H,0,H-h*2.4);
+    gr.addColorStop(0,'rgba(255,45,0,.85)');gr.addColorStop(.5,'rgba(255,150,0,.5)');gr.addColorStop(1,'rgba(255,230,120,0)');
+    FX.fillStyle=gr;FX.beginPath();FX.ellipse(x,H-h*.45,(8+DPR*3)*Math.min(surge,1.5),h,0,0,7);FX.fill(); }
+  FX.fillStyle='rgba(255,170,60,.5)';FX.fillRect(0,H-2,W,2);
+  requestAnimationFrame(drawFire); })();
+
+/* sparks + shockwave rings + embers (3D depth via z) */
+const embers=Array.from({length:110},()=>({x:Math.random()*innerWidth,y:Math.random()*innerHeight,
+  vy:-(.4+Math.random()*1.6),vx:(Math.random()-.5)*.8,r:.8+Math.random()*3,z:.3+Math.random(),tw:Math.random()*9}));
+let frames=0,lastFps=performance.now();
+(function drawSparks(){ PX.clearRect(0,0,W,H); PX.globalCompositeOperation='lighter';
+  embers.forEach(p=>{ p.y+=p.vy*p.z;p.x+=p.vx+Math.sin(Date.now()/500+p.tw)*.5;p.tw+=.04;
+    if(p.y<-12){p.y=H+12;p.x=Math.random()*W;}
+    PX.fillStyle=`rgba(255,${130+Math.random()*110|0},40,${.4+.5*p.z})`;
+    PX.shadowColor='#ff7a00';PX.shadowBlur=10*p.z;
+    PX.beginPath();PX.arc(p.x,p.y,p.r*p.z,0,7);PX.fill();PX.shadowBlur=0; });
+  for(let i=sparks.length-1;i>=0;i--){ const p=sparks[i];
+    p.x+=p.vx;p.y+=p.vy;p.vy+=.12;p.life-=p.decay;
+    if(p.life<=0){sparks.splice(i,1);continue;}
+    PX.strokeStyle=`rgba(255,${150+p.life*100|0},50,${p.life})`;PX.lineWidth=2*p.z;
+    PX.beginPath();PX.moveTo(p.x,p.y);PX.lineTo(p.x-p.vx*2,p.y-p.vy*2);PX.stroke(); }
+  for(let i=rings.length-1;i>=0;i--){ const r=rings[i]; r.r+=15;r.a-=.032;
+    if(r.a<=0){rings.splice(i,1);continue;}
+    PX.strokeStyle=`rgba(255,200,100,${r.a})`;PX.lineWidth=r.w||3;
+    PX.shadowColor='#ffb03a';PX.shadowBlur=22;PX.beginPath();PX.arc(r.x,r.y,r.r,0,7);PX.stroke();PX.shadowBlur=0; }
+  // meteor heads: white-hot cores with fire glow
+  meteors.forEach(m=>{ const g=PX.createRadialGradient(m.x,m.y,0,m.x,m.y,m.r*5);
+    g.addColorStop(0,'rgba(255,255,240,.95)');g.addColorStop(.3,'rgba(255,200,80,.8)');g.addColorStop(1,'rgba(255,80,0,0)');
+    PX.fillStyle=g;PX.beginPath();PX.arc(m.x,m.y,m.r*5,0,7);PX.fill(); });
+  frames++; const now=performance.now();
+  if(now-lastFps>800){ document.getElementById('fps').textContent=Math.round(frames*1000/(now-lastFps)); frames=0;lastFps=now; }
+  requestAnimationFrame(drawSparks); })();
+
+/* film grain */
+(function drawGrain(){ const s=128; GX.clearRect(0,0,W,H);
+  for(let i=0;i<160;i++){ GX.fillStyle=`rgba(255,255,255,${Math.random()*.5})`;
+    GX.fillRect(Math.random()*W,Math.random()*H,1,1); }
+  setTimeout(()=>requestAnimationFrame(drawGrain),90); })();
+</script>
+</body>
+</html>
