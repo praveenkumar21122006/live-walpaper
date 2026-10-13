@@ -266,7 +266,7 @@ update();
     if(linked.ntfy) parts.push('WEB '+ROOM);
     dot.textContent=on?('LINKED '+parts.join(' + ')):'connecting…';
     if(on) btn.style.display='';
-    if(on&&!toldLink){ toldLink=true; pill('LINKED ✓ — press SYNC on host'); } };
+    if(on&&!toldLink){ toldLink=true; pill('LINKED ✓  '+parts.join('  •  ')); } };
   const clearAll=()=>{ try{ mchars.forEach(c=>c.classList.remove('lit'));
     chars.forEach(c=>c.classList.remove('lit')); rchars.forEach(c=>c.classList.remove('lit'));
     fchars.forEach(c=>c.classList.remove('lit')); }catch(e){} };
